@@ -22,7 +22,7 @@ public:
     double fov = 40;
     Vector3f backgroundColor = Vector3f(0.235294, 0.67451, 0.843137);
     int maxDepth = 1;
-    float RussianRoulette = 0.125;
+    float RussianRoulette = 0.25;
 
     Scene(int w, int h) : width(w), height(h)
     {}

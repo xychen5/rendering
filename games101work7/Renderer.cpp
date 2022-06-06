@@ -25,12 +25,12 @@ void Renderer::Render(const Scene& scene)
     Vector3f eye_pos(278, 273, -800);
     int m = 0;
 
-    bool multithread = true;
+    bool multithread = false;
 
     if(!multithread)
     {
     // change the spp value to change sample ammount
-    int spp = 512;
+    int spp = 32;
     std::cout << "SPP: " << spp << "\n";
     //#pragma omp parallel for 
     //config for the simple multithreading code
@@ -59,8 +59,8 @@ void Renderer::Render(const Scene& scene)
     int spp = 32;
     std::cout << "SPP: " << spp << "\n";
 
-    ThreadPool pool(std::thread::hardware_concurrency());
-    pool.init();
+    // ThreadPool pool(std::thread::hardware_concurrency());
+    // pool.init();
     std::mutex l;
 
     //config for the simple multithreading code
@@ -84,10 +84,11 @@ void Renderer::Render(const Scene& scene)
 
     for (uint32_t j = 0; j < scene.height; ++j) {
         for (uint32_t i = 0; i < scene.width; ++i) {
-            pool.submit(rayTracingPixel, i, j);
+            rayTracingPixel(i, j);
+            // pool.submit(rayTracingPixel, i, j);
         }
     }
-    pool.myShutdown();
+    // pool.myShutdown();
 
     UpdateProgress(1.f);
     }
