@@ -63,32 +63,33 @@ Buffer2D<Float3> Denoiser::Filter(const FrameInfo &frameInfo) {
     int height = frameInfo.m_beauty.m_height;
     int width = frameInfo.m_beauty.m_width;
     Buffer2D<Float3> filteredImage = CreateBuffer2D<Float3>(width, height);
-    int kernelRadius = 16;
-// #pragma omp parallel for
+    int kernelRadius = 5;
+    m_sigmaCoord = static_cast<float>(kernelRadius) / 3.0 / 2.0;
+#pragma omp parallel for
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             // TODO: Joint bilateral filter
-                double weightsSum = 0;
-                double c1ValueSum = 0;
-                double c2ValueSum = 0;
-                double c3ValueSum = 0;
+            double weightsSum = 0;
+            double c1ValueSum = 0;
+            double c2ValueSum = 0;
+            double c3ValueSum = 0;
             for (int newX = x - kernelRadius; newX <= x + kernelRadius; ++newX) {
                 for (int newY = y - kernelRadius; newY <= y + kernelRadius; ++newY) {
                     float weight = dobuleJointGauss(
                         Float3(x, y, 0), Float3(newX, newY, 0), 
                         m_sigmaPlane, m_sigmaColor, m_sigmaNormal, m_sigmaCoord
                     );
-                    weightsSum += weight;
-                    int cx = std::min(std::max(0, x), width);
-                    int cy = std::min(std::max(0, y), height);
+                    int cx = std::min(std::max(0, newX), width);
+                    int cy = std::min(std::max(0, newY), height);
                     
-                    std::cout << "pixel pos: " << cx << ", " << cy << " | " << frameInfo.m_beauty(cx, cy).x << " \ "
-                        << frameInfo.m_beauty(cx, cy).y  << " \ "
-                        << frameInfo.m_beauty(cx, cy).z << std::endl;
+                    // std::cout << "pixel pos: " << cx << ", " << cy << " | " << frameInfo.m_beauty(cx, cy).x << " \ "
+                    //     << frameInfo.m_beauty(cx, cy).y  << " \ "
+                    //     << frameInfo.m_beauty(cx, cy).z << std::endl;
 
-                    c1ValueSum = weight * frameInfo.m_beauty(cx, cy).x;
-                    c2ValueSum = weight * frameInfo.m_beauty(cx, cy).y;
-                    c3ValueSum = weight * frameInfo.m_beauty(cx, cy).z;
+                    weightsSum += weight;
+                    c1ValueSum += weight * frameInfo.m_beauty(cx, cy).x;
+                    c2ValueSum += weight * frameInfo.m_beauty(cx, cy).y;
+                    c3ValueSum += weight * frameInfo.m_beauty(cx, cy).z;
                 }
             }
             c1ValueSum /= weightsSum;
