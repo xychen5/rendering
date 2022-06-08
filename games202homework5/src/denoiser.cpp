@@ -67,13 +67,13 @@ float dobuleJointFilter(
 
     // 意思是考虑两个空间中相隔较远的平面，就不去贡献！这种提供了一种比只是简单计算两个深度的差值更好的指标,
     // 假设场景的视线和墙面平行，那么相邻像素的深度会变化距离，导致一个kernel内本应该贡献
-    // 的像素点没有贡献，这也就是判断，如果两个平面的距离超过了3*sigmaPlane，则不会贡献
+    // 的像素点没有贡献，这也就是判断，如果两个平行平面的距离超过了3*sigmaPlane，则不会贡献
     auto pos3D1 = frameinfo.m_position(pixelPos1.x, pixelPos1.y);
     auto pos3D2 = frameinfo.m_position(pixelPos2.x, pixelPos2.y);
     auto deltaPos3D = pos3D1 - pos3D2;
     Float3 deltaPlane(0, 0, 0);
     if (0 != Dot(deltaPos3D, deltaPos3D)) {
-        deltaPlane = pos3D1 * (deltaPos3D / Dot(deltaPos3D, deltaPos3D));
+        deltaPlane = normal1 * (deltaPos3D / sqrt(Dot(deltaPos3D, deltaPos3D)));
     }
     return pow(
         2.718281,
@@ -90,6 +90,7 @@ Buffer2D<Float3> Denoiser::Filter(const FrameInfo &frameInfo) {
     Buffer2D<Float3> filteredImage = CreateBuffer2D<Float3>(width, height);
     int kernelRadius = 7;
     m_sigmaCoord = static_cast<float>(kernelRadius) / 3.0;
+    m_sigmaPlane = 0.35;
 #pragma omp parallel for
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
