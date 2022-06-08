@@ -136,6 +136,7 @@ class Matrix4x4 {
         float inv = 1.f / v;
         return *this * inv;
     }
+
     Matrix4x4 operator*(const Matrix4x4 &mat) const {
         Matrix4x4 ret;
         for (uint32_t i = 0; i < 4; i++) {

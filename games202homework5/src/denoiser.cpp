@@ -9,12 +9,61 @@ void Denoiser::Reprojection(const FrameInfo &frameInfo) {
         m_preFrameInfo.m_matrix[m_preFrameInfo.m_matrix.size() - 1];
     Matrix4x4 preWorldToCamera =
         m_preFrameInfo.m_matrix[m_preFrameInfo.m_matrix.size() - 2];
-#pragma omp parallel for
+// #pragma omp parallel for
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            // TODO: Reproject
+            // TODO: Reproject, fill into m_accColor
             m_valid(x, y) = false;
             m_misc(x, y) = Float3(0.f);
+            int lastX, lastY;
+            if (-1 == frameInfo.m_id(x, y)) { // 不是物体
+                m_misc(x, y) = frameInfo.m_beauty(x, y);
+                m_misc(x, y) = Float3(2, 0, 0);
+            }
+            else { // 是物体
+                int itemId = frameInfo.m_id(x, y);
+                auto& itemToWord = frameInfo.m_matrix[itemId];
+                auto& itemWorldPos = frameInfo.m_position(x, y);
+                Matrix4x4 matItemWorldPos;
+                memset(matItemWorldPos.m, 0, sizeof(float) * 16);
+                matItemWorldPos.m[0][3] = itemWorldPos.x;
+                matItemWorldPos.m[1][3] = itemWorldPos.y;
+                matItemWorldPos.m[2][3] = itemWorldPos.z;
+                matItemWorldPos.m[3][3] = 1;
+
+                // // 检测存的坐标是不是世界坐标还是相机坐标
+                // auto curWorldToScreen = frameInfo.m_matrix[m_preFrameInfo.m_matrix.size() - 1];
+                // auto curScreenPos = curWorldToScreen * matItemWorldPos;
+                // auto preCamToScreen = preWorldToScreen * Inverse(preWorldToCamera);
+
+                auto& preItemToWord = m_preFrameInfo.m_matrix[itemId];
+
+                // 算出来的屏幕坐标对应的点，不一定是当前物体，想象一下，当前帧的上一帧，物体的这个
+                // 点还被别的东西遮挡，但是当前帧则移动出来了
+                // 注意lastScreePos算出来的是，[x,y,depth,w]，没有经过归一化的，需要自己归一化啊
+                auto lastScreenPos = preWorldToScreen * // 物体该点的屏幕坐标
+                    preItemToWord *  // 物体上一帧这个点的世界坐标
+                    Inverse(itemToWord) *  // 物体上该点的本地坐标
+                    matItemWorldPos; // 物体上这个像素对应的点的世界坐标
+
+                lastX = lastScreenPos.m[0][3] / lastScreenPos.m[3][3];
+                lastY = lastScreenPos.m[1][3] / lastScreenPos.m[3][3];
+                if (0 <= lastX && lastX < width && 0 <= lastY && lastY < height) {
+                    if (m_preFrameInfo.m_id(lastX, lastY) == itemId) {
+                        m_misc(x, y) = m_preFrameInfo.m_beauty(lastX, lastY);
+                        m_valid(x, y) = true;
+                    }
+                    else {
+                        m_misc(x, y) = frameInfo.m_beauty(x, y);
+                        // 方便调试：
+                        // m_misc(x, y) = Float3(0, 2, 0);
+                    }
+                }
+                else {
+                    m_misc(x, y) = frameInfo.m_beauty(x, y);
+                    // m_misc(x, y) = Float3(0, 0, 2);
+                }
+            }
         }
     }
     std::swap(m_misc, m_accColor);
@@ -142,12 +191,12 @@ Buffer2D<Float3> Denoiser::ProcessFrame(const FrameInfo &frameInfo) {
     // Filter current frame
     Buffer2D<Float3> filteredColor;
     filteredColor = Filter(frameInfo);
-    return filteredColor;
 
     // Reproject previous frame color to current
     if (m_useTemportal) {
+        std::cout << "doing reprojection! " << std::endl;
         Reprojection(frameInfo);
-        TemporalAccumulation(filteredColor);
+        // TemporalAccumulation(filteredColor);
     } else {
         Init(frameInfo, filteredColor);
     }
