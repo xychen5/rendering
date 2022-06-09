@@ -9,7 +9,7 @@ void Denoiser::Reprojection(const FrameInfo &frameInfo) {
         m_preFrameInfo.m_matrix[m_preFrameInfo.m_matrix.size() - 1];
     Matrix4x4 preWorldToCamera =
         m_preFrameInfo.m_matrix[m_preFrameInfo.m_matrix.size() - 2];
-// #pragma omp parallel for
+#pragma omp parallel for
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             // TODO: Reproject, fill into m_accColor
@@ -56,17 +56,61 @@ void Denoiser::Reprojection(const FrameInfo &frameInfo) {
                     else {
                         m_misc(x, y) = frameInfo.m_beauty(x, y);
                         // 方便调试：
-                        // m_misc(x, y) = Float3(0, 2, 0);
+                        m_misc(x, y) = Float3(0, 2, 0);
                     }
                 }
                 else {
                     m_misc(x, y) = frameInfo.m_beauty(x, y);
-                    // m_misc(x, y) = Float3(0, 0, 2);
+                    m_misc(x, y) = Float3(0, 0, 2);
                 }
             }
         }
     }
     std::swap(m_misc, m_accColor);
+}
+
+// 对lastFrame的xy处的像素clamp到u +- k*sigma, u是颜色均值，sigma是方差
+Float3 TemporalClamp(
+    const Buffer2D<Float3>& curFrame,
+    const Buffer2D<Float3>& preFrame,
+    int w, int h,
+    int x, int y,
+    int kernelRadius,
+    float k
+) {
+    Float3 sum(0, 0, 0);
+ 
+	Float3 accum(0, 0, 0);
+    int n = kernelRadius * kernelRadius;
+    for (int newX = x - kernelRadius; newX <= x + kernelRadius; ++newX) {
+        for (int newY = y - kernelRadius; newY <= y + kernelRadius; ++newY) {
+            int cx = std::min(std::max(0, newX), w);
+            int cy = std::min(std::max(0, newY), h);
+            sum.x += curFrame(cx,cy).x;
+            sum.y += curFrame(cx,cy).y;
+            sum.z += curFrame(cx,cy).z;
+        }
+    }
+	Float3 mean(sum.x / n, sum.y / n, sum.z / n); //均值
+    
+    for (int newX = x - kernelRadius; newX <= x + kernelRadius; ++newX) {
+        for (int newY = y - kernelRadius; newY <= y + kernelRadius; ++newY) {
+            int cx = std::min(std::max(0, newX), w);
+            int cy = std::min(std::max(0, newY), h);
+            accum.x += pow(curFrame(cx, cy).x - mean.x, 2);
+            accum.y += pow(curFrame(cx, cy).y - mean.y, 2);
+            accum.z += pow(curFrame(cx, cy).z - mean.z, 2);
+        }
+    }
+    Float3 sigma( 
+        std::sqrt(accum.x / (n - 1)),
+        std::sqrt(accum.y / (n - 1)),
+        std::sqrt(accum.z / (n - 1))
+    ); // 方差
+
+    Float3 st(mean.x - sigma.x, mean.y - sigma.y, mean.z - sigma.z);
+    Float3 ed(mean.x + sigma.x, mean.y + sigma.y, mean.z + sigma.z);
+    return Clamp(preFrame(x, y), st, ed);
 }
 
 void Denoiser::TemporalAccumulation(const Buffer2D<Float3> &curFilteredColor) {
@@ -76,11 +120,18 @@ void Denoiser::TemporalAccumulation(const Buffer2D<Float3> &curFilteredColor) {
 #pragma omp parallel for
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            // TODO: Temporal clamp
-            Float3 color = m_accColor(x, y);
+            // TODO: Temporal clamp, 可以去除滤波漏下的outlier
+            Float3 clampedColor = TemporalClamp(
+                curFilteredColor,
+                m_accColor,
+                width, height,
+                x, y,
+                kernelRadius, 2
+            );
+
             // TODO: Exponential moving average
             float alpha = 1.0f;
-            m_misc(x, y) = Lerp(color, curFilteredColor(x, y), alpha);
+            m_misc(x, y) = Lerp(clampedColor, curFilteredColor(x, y), alpha);
         }
     }
     std::swap(m_misc, m_accColor);
