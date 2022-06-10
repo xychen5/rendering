@@ -13,12 +13,12 @@ void Denoiser::Reprojection(const FrameInfo &frameInfo) {
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             // TODO: Reproject, fill into m_accColor
-            m_valid(x, y) = false;
+            m_valid(x, y) = false; // 这个valid标志，会被时间上的累计中的clamp干掉
             m_misc(x, y) = Float3(0.f);
             int lastX, lastY;
             if (-1 == frameInfo.m_id(x, y)) { // 不是物体
                 m_misc(x, y) = frameInfo.m_beauty(x, y);
-                m_misc(x, y) = Float3(2, 0, 0);
+                // m_misc(x, y) = Float3(2, 0, 0);
             }
             else { // 是物体
                 int itemId = frameInfo.m_id(x, y);
@@ -56,12 +56,12 @@ void Denoiser::Reprojection(const FrameInfo &frameInfo) {
                     else {
                         m_misc(x, y) = frameInfo.m_beauty(x, y);
                         // 方便调试：
-                        m_misc(x, y) = Float3(0, 2, 0);
+                        // m_misc(x, y) = Float3(0, 2, 0);
                     }
                 }
                 else {
                     m_misc(x, y) = frameInfo.m_beauty(x, y);
-                    m_misc(x, y) = Float3(0, 0, 2);
+                    // m_misc(x, y) = Float3(0, 0, 2);
                 }
             }
         }
@@ -126,12 +126,12 @@ void Denoiser::TemporalAccumulation(const Buffer2D<Float3> &curFilteredColor) {
                 m_accColor,
                 width, height,
                 x, y,
-                kernelRadius, 2
+                kernelRadius, 0.2
             );
 
             // TODO: Exponential moving average
-            float alpha = 1.0f;
-            m_misc(x, y) = Lerp(clampedColor, curFilteredColor(x, y), alpha);
+            float alpha = 0.80;
+            m_misc(x, y) = Lerp(curFilteredColor(x, y), clampedColor, alpha);
         }
     }
     std::swap(m_misc, m_accColor);
@@ -188,8 +188,8 @@ Buffer2D<Float3> Denoiser::Filter(const FrameInfo &frameInfo) {
     int height = frameInfo.m_beauty.m_height;
     int width = frameInfo.m_beauty.m_width;
     Buffer2D<Float3> filteredImage = CreateBuffer2D<Float3>(width, height);
-    int kernelRadius = 7;
-    m_sigmaCoord = static_cast<float>(kernelRadius) / 3.0;
+    int kernelRadius = 10;
+    m_sigmaCoord = static_cast<float>(kernelRadius) / 2.0;
     m_sigmaPlane = 0.35;
 #pragma omp parallel for
     for (int y = 0; y < height; y++) {
@@ -247,7 +247,7 @@ Buffer2D<Float3> Denoiser::ProcessFrame(const FrameInfo &frameInfo) {
     if (m_useTemportal) {
         std::cout << "doing reprojection! " << std::endl;
         Reprojection(frameInfo);
-        // TemporalAccumulation(filteredColor);
+        TemporalAccumulation(filteredColor);
     } else {
         Init(frameInfo, filteredColor);
     }
