@@ -2,6 +2,8 @@
 
 Denoiser::Denoiser() : m_useTemportal(false) {}
 
+// 主要目的：1. 得到当前帧的像素x,y在上一帧中是否可用，存在valid(x,y)上，m_accColor存的上一帧的信息就不要动了
+// 主要目的：那些不valid点，就不会进入accumulateColor的过程，转而直接使用当前帧滤波以后的结果
 void Denoiser::Reprojection(const FrameInfo &frameInfo) {
     int height = m_accColor.m_height;
     int width = m_accColor.m_width;
@@ -14,7 +16,7 @@ void Denoiser::Reprojection(const FrameInfo &frameInfo) {
         for (int x = 0; x < width; x++) {
             // TODO: Reproject, fill into m_accColor
             m_valid(x, y) = false; // 这个valid标志，会被时间上的累计中的clamp干掉
-            m_misc(x, y) = Float3(0.f);
+            // m_misc(x, y) = Float3(0.f);
             int lastX, lastY;
             if (-1 == frameInfo.m_id(x, y)) { // 不是物体
                 m_misc(x, y) = frameInfo.m_beauty(x, y);
@@ -50,7 +52,11 @@ void Denoiser::Reprojection(const FrameInfo &frameInfo) {
                 lastY = lastScreenPos.m[1][3] / lastScreenPos.m[3][3];
                 if (0 <= lastX && lastX < width && 0 <= lastY && lastY < height) {
                     if (m_preFrameInfo.m_id(lastX, lastY) == itemId) {
-                        m_misc(x, y) = m_preFrameInfo.m_beauty(lastX, lastY);
+                        // 将上一帧的结果能否可以投影到当前帧记作m_valid(x,y)
+                        // 然后将上一帧的颜色投影到当前帧，使用m_misc作为中间变量
+                        // 最后还是存在m_accColor
+                        // m_misc(x, y) = m_preFrameInfo.m_beauty(lastX, lastY); 
+                        m_misc(x, y) = m_accColor(lastX, lastY); 
                         m_valid(x, y) = true;
                     }
                     else {
@@ -81,7 +87,7 @@ Float3 TemporalClamp(
     Float3 sum(0, 0, 0);
  
 	Float3 accum(0, 0, 0);
-    int n = kernelRadius * kernelRadius;
+    int n = pow(2 * kernelRadius + 1, 2);
     for (int newX = x - kernelRadius; newX <= x + kernelRadius; ++newX) {
         for (int newY = y - kernelRadius; newY <= y + kernelRadius; ++newY) {
             int cx = std::min(std::max(0, newX), w);
@@ -116,7 +122,7 @@ Float3 TemporalClamp(
 void Denoiser::TemporalAccumulation(const Buffer2D<Float3> &curFilteredColor) {
     int height = m_accColor.m_height;
     int width = m_accColor.m_width;
-    int kernelRadius = 3;
+    int kernelRadius = 7;
 #pragma omp parallel for
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
@@ -130,8 +136,11 @@ void Denoiser::TemporalAccumulation(const Buffer2D<Float3> &curFilteredColor) {
             );
 
             // TODO: Exponential moving average
-            float alpha = 0.80;
-            m_misc(x, y) = Lerp(curFilteredColor(x, y), clampedColor, alpha);
+            float alpha = 0.05;
+            if (!m_valid(x, y)) { // 上一帧的x，y是不可以使用的
+                alpha = 1;
+            }
+            m_misc(x, y) = Lerp(clampedColor, curFilteredColor(x, y), alpha);
         }
     }
     std::swap(m_misc, m_accColor);
@@ -188,7 +197,7 @@ Buffer2D<Float3> Denoiser::Filter(const FrameInfo &frameInfo) {
     int height = frameInfo.m_beauty.m_height;
     int width = frameInfo.m_beauty.m_width;
     Buffer2D<Float3> filteredImage = CreateBuffer2D<Float3>(width, height);
-    int kernelRadius = 10;
+    int kernelRadius = 8;
     m_sigmaCoord = static_cast<float>(kernelRadius) / 2.0;
     m_sigmaPlane = 0.35;
 #pragma omp parallel for
